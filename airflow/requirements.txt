@@ -1,0 +1,8 @@
+apache-airflow
+pandas
+SQLAlchemy
+psycopg2-binary
+kagglehub
+pyarrow
+pycountry
+pycountry_convert

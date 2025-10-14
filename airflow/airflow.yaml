@@ -1,0 +1,72 @@
+x-common:
+  &common
+  user: "0:0"
+  env_file: 
+    - .env
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./scripts:/opt/airflow/scripts
+    - ./data:/opt/airflow/data:rw
+    - /var/run/docker.sock:/var/run/docker.sock
+
+x-depends-on:
+  &depends-on
+  depends_on:
+    postgres:
+      condition: service_healthy
+    airflow-init:
+      condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:13
+    container_name: postgres
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+
+  scheduler:
+    <<: [*common, *depends-on]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: airflow-bash-scheduler:latest
+    container_name: airflow-scheduler
+    command: scheduler
+    restart: on-failure
+    ports:
+      - "8793:8793"
+
+  webserver:
+    <<: [*common, *depends-on]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: airflow-bash-webserver:latest
+    container_name: airflow-webserver
+    restart: always
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 30s
+      retries: 5
+  
+  airflow-init:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: airflow-bash-init:latest
+    container_name: airflow-init
+    command: bash -c "sleep 30 && airflow db init && airflow users create --username airflow --password airflow --firstname airflow --lastname airflow --role Admin --email airflow@example.com"
