@@ -8,6 +8,7 @@ Using BashOperator
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 from datetime import datetime, timedelta
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 default_args = {
     "owner": "irhammaula_ario",
@@ -20,7 +21,7 @@ with DAG(
     description="ETL1 pipeline for Agrofood CO2 emissions: Kaggle → Staging → DWH",
     default_args=default_args,
     start_date=datetime(2024, 1, 1),
-    schedule_interval=None,  # run manually
+    schedule_interval="0 0 1 * *", 
     catchup=False,
     tags=["ETL1", "DWH", "Agrofood"],
 ) as dag:
@@ -39,5 +40,11 @@ with DAG(
         task_id="load_to_staging_and_dwh",
         bash_command="python3 /opt/airflow/scripts/dwh_load.py",
     )
+        # Trigger the DataMart DAG once this pipeline finishes successfully
+    trigger_datamart = TriggerDagRunOperator(
+        task_id="trigger_datamart_pipeline",
+        trigger_dag_id="dm_etl_dag",   
+        wait_for_completion=False           
+    )
 
-    extract_task >> transform_task >> load_task
+    extract_task >> transform_task >> load_task >> trigger_datamart

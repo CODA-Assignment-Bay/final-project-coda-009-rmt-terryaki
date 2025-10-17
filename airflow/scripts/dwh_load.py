@@ -15,7 +15,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from datetime import datetime
 
-print("🚀 Starting DWH Load Phase...")
+print("Starting DWH Load Phase...")
 
 # ============================================================
 # 1. Database Configuration
@@ -32,7 +32,7 @@ CONNECTION_STRING = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/{DAT
 engine = create_engine(CONNECTION_STRING)
 
 # ============================================================
-# 2. Load CSV files (Dimension first, then Fact)
+# 2. Load CSV files
 # ============================================================
 
 DATA_DIR = "/opt/airflow/data/dwh"
@@ -53,7 +53,7 @@ def load_table(schema_table: str, csv_path: str):
     schema = schema_table.split(".")[0]
     table = schema_table.split(".")[1]
 
-    print(f"📥 Loading {schema}.{table} ...")
+    print(f"Loading {schema}.{table} ...")
 
     df = pd.read_csv(csv_path)
 
@@ -72,14 +72,14 @@ def load_table(schema_table: str, csv_path: str):
         """)
         generated_cols = [row[0] for row in conn.execute(query, {"schema": schema, "table": table})]
         if generated_cols:
-            print(f"⚙️ Skipping generated columns for {schema}.{table}: {generated_cols}")
+            print(f"Skipping generated columns for {schema}.{table}: {generated_cols}")
             df = df.drop(columns=[col for col in generated_cols if col in df.columns], errors="ignore")
 
         # Truncate + append (preserves FK relationships)
         conn.execute(text(f"TRUNCATE TABLE {schema}.{table} RESTART IDENTITY CASCADE;"))
         df.to_sql(table, con=conn, schema=schema, if_exists="append", index=False)
 
-    print(f"✅ Loaded {schema}.{table} ({len(df)} rows)")
+    print(f"Loaded {schema}.{table} ({len(df)} rows)")
 
 # ============================================================
 # 4. Main Load Loop
@@ -88,7 +88,7 @@ def load_table(schema_table: str, csv_path: str):
 for csv_name in tables:
     csv_path = os.path.join(DATA_DIR, f"{csv_name}.csv")
     if not os.path.exists(csv_path):
-        print(f"⚠️ Skipped missing file: {csv_path}")
+        print(f"Skipped missing file: {csv_path}")
         continue
 
     schema_table = f"dwh.{csv_name.replace('dwh_', '')}"
@@ -96,7 +96,7 @@ for csv_name in tables:
     try:
         load_table(schema_table, csv_path)
     except Exception as e:
-        print(f"❌ Error loading {schema_table}: {e}")
+        print(f"Error loading {schema_table}: {e}")
         raise
 
-print("🎉 All DWH tables loaded successfully into Neon PostgreSQL.")
+print("All DWH tables loaded successfully into Neon PostgreSQL.")

@@ -1,5 +1,5 @@
 # =================================================
-# Airflow Dockerfile for ETL Project (no Spark)
+# Airflow Dockerfile for ETL Project
 # =================================================
 FROM apache/airflow:2.10.2-python3.11
 

@@ -6,6 +6,9 @@ ETL1 - DWH Extract Phase
 import os
 import shutil
 import kagglehub
+from sqlalchemy import create_engine
+import pandas as pd
+
 
 print("Starting DWH Extraction Phase...")
 
@@ -35,6 +38,21 @@ if not source_csv:
     raise FileNotFoundError("No CSV file found in the Kaggle dataset.")
 
 # --- Copy file to Airflow data folder ---
-shutil.copy2(source_csv, RAW_CSV_PATH)
-print(f"✅ Raw dataset saved to: {RAW_CSV_PATH}")
-print("✅ Extraction phase completed successfully.")
+shutil.copyfile(source_csv, RAW_CSV_PATH)
+print(f"Raw dataset saved to: {RAW_CSV_PATH}")
+print("Extraction phase completed successfully.")
+
+# --- Connect to Neon ---
+HOST = "ep-red-grass-a1y4mh5d-pooler.ap-southeast-1.aws.neon.tech"
+PORT = "5432"
+DATABASE = "neondb"
+USER = "neondb_owner"
+PASSWORD = "npg_3MPZY4FkDGbr"
+SSLMODE = "require"
+CONNECTION_STRING = f"postgresql+psycopg2://{USER}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}?sslmode={SSLMODE}"
+engine = create_engine(CONNECTION_STRING)
+
+# --- Load into stg schema ---
+df = pd.read_csv(RAW_CSV_PATH)
+df.to_sql("raw_agrofood", con=engine, schema="stg", if_exists="replace", index=False)
+print("Raw data loaded into stg.raw_agrofood in Neon.")

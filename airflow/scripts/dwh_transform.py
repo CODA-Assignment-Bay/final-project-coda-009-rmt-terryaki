@@ -1,40 +1,31 @@
-"""
-=================================================
-ETL1 - DWH Transform Phase (Global Scope)
-Name  : Irhammaula Ario
-Batch : CODA-009-RMT
-
-Tasks:
-1. Normalize raw CSV into DIM and FACT tables
-2. Ensure consistent snake_case naming
-3. Enrich country info (ISO3, region)
-4. Classify emission sources using full mapping
-5. Keep ALL countries globally (filter in ETL2)
-=================================================
-"""
-
 import pandas as pd
 import os
 from datetime import datetime
 import pycountry
 import pycountry_convert as pc
+from sqlalchemy import create_engine
 
 # ------------------------------------------------------------
-# CONFIGURATION
+# CONFIGURATION (existing code)
 # ------------------------------------------------------------
 DATA_DIR = "/opt/airflow/data"
 RAW_FILE = os.path.join(DATA_DIR, "Agrofood_co2_emission.csv")
 OUTPUT_DIR = os.path.join(DATA_DIR, "dwh")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-print("🚀 Starting DWH Transformation Phase (Global Scope)...")
+print("Starting DWH Transformation Phase (Global Scope)...")
 
 # ------------------------------------------------------------
-# READ RAW DATA
+# READ RAW DATA (existing code)
 # ------------------------------------------------------------
-df = pd.read_csv(RAW_FILE)
+CONNECTION_STRING = (
+    "postgresql+psycopg2://neondb_owner:npg_3MPZY4FkDGbr@"
+    "ep-red-grass-a1y4mh5d-pooler.ap-southeast-1.aws.neon.tech:5432/neondb?sslmode=require"
+)
+engine = create_engine(CONNECTION_STRING)
+df = pd.read_sql("SELECT * FROM stg.raw_agrofood", con=engine)
 
-# --- Clean column names ---
+# --- Clean column names --- (existing code)
 df.columns = (
     df.columns.str.strip()
     .str.lower()
@@ -44,7 +35,7 @@ df.columns = (
 )
 
 # ------------------------------------------------------------
-# DEFINE METADATA
+# DEFINE METADATA (existing code)
 # ------------------------------------------------------------
 meta_cols = [
     'area', 'year',
@@ -57,7 +48,7 @@ emission_cols = [c for c in df.columns if c not in meta_cols]
 now = datetime.now()
 
 # ------------------------------------------------------------
-# DETAILED EMISSION SOURCE CLASSIFICATION
+# DETAILED EMISSION SOURCE CLASSIFICATION (existing code)
 # ------------------------------------------------------------
 source_info = {
     "savanna_fires": ("Non_Industrial", "Emissions from fires in savanna ecosystems."),
@@ -92,16 +83,58 @@ def get_source_desc(source):
     return source_info.get(source, ("Non_Industrial", f"Emissions from {source.replace('_', ' ')}."))[1]
 
 # ------------------------------------------------------------
-# COUNTRY ENRICHMENT (ISO3 + REGION)
+# COUNTRY ENRICHMENT (ISO3 + REGION) - MODIFIED SECTION
 # ------------------------------------------------------------
+
+# Custom mapping for problematic country names that pycountry might not handle
+# or for historical entities/specific designations.
+# This map provides direct ISO3 and region strings.
+custom_country_fix_map = {
+    "China, mainland": {"iso3": "CHN", "region": "Asia"},
+    "Serbia and Montenegro": {"iso3": "SRB", "region": "Europe"},
+    "Wallis and Futuna Islands": {"iso3": "WLF", "region": "Oceania"},
+    "Ethiopia PDR": {"iso3": "ETH", "region": "Africa"},
+    "Netherlands (Kingdom of the)": {"iso3": "NLD", "region": "Europe"},
+    "Channel Islands": {"iso3": "GGY", "region": "Europe"}, 
+    "Democratic Republic of the Congo": {"iso3": "COD", "region": "Africa"},
+    "Czechoslovakia": {"iso3": "CZE", "region": "Europe"}, 
+    "Timor-Leste": {"iso3": "TLS", "region": "Asia"},
+    "Netherlands Antilles (former)": {"iso3": "NLD", "region": "North America"}, 
+    "Iran (Islamic Republic of)": {"iso3": "IRN", "region": "Asia"},
+    "Belgium-Luxembourg": {"iso3": "BEL", "region": "Europe"}, 
+    "Sudan (former)": {"iso3": "SDN", "region": "Africa"},
+    "China, Taiwan Province of": {"iso3": "TWN", "region": "Asia"},
+    "Republic of Korea": {"iso3": "KOR", "region": "Asia"},
+    "Venezuela (Bolivarian Republic of)": {"iso3": "VEN", "region": "South America"},
+    "Micronesia (Federated States of)": {"iso3": "FSM", "region": "Oceania"},
+    "China, Macao SAR": {"iso3": "MAC", "region": "Asia"},
+    "Holy See": {"iso3": "VAT", "region": "Europe"},
+    "Yugoslav SFR": {"iso3": "SRB", "region": "Europe"}, 
+    "Pacific Islands Trust Territory": {"iso3": None, "region": "Oceania"}, 
+    "USSR": {"iso3": "RUS", "region": "Europe"}, 
+    "China, Hong Kong SAR": {"iso3": "HKG", "region": "Asia"},
+    "Western Sahara": {"iso3": "ESH", "region": "Africa"},
+    "United States Virgin Islands": {"iso3": "VIR", "region": "North America"},
+    "Palestine": {"iso3": "PSE", "region": "Asia"},
+    "Bolivia (Plurinational State of)": {"iso3": "BOL", "region": "South America"},
+}
+
 def get_iso3(country):
+    # Check custom map first
+    if country in custom_country_fix_map and custom_country_fix_map[country].get("iso3"):
+        return custom_country_fix_map[country]["iso3"]
     try:
+        # Fallback to pycountry
         return pycountry.countries.lookup(country).alpha_3
-    except:
+    except Exception:
         return None
 
 def get_region(country):
+    # Check custom map first
+    if country in custom_country_fix_map and custom_country_fix_map[country].get("region"):
+        return custom_country_fix_map[country]["region"]
     try:
+        # Fallback to pycountry and pycountry_convert
         iso = pycountry.countries.lookup(country).alpha_2
         continent = pc.country_alpha2_to_continent_code(iso)
         mapping = {
@@ -109,11 +142,11 @@ def get_region(country):
             "NA": "North America", "SA": "South America", "OC": "Oceania"
         }
         return mapping.get(continent, "Unknown")
-    except:
+    except Exception:
         return "Unknown"
 
 # ------------------------------------------------------------
-# DIM COUNTRY
+# DIM COUNTRY (existing code)
 # ------------------------------------------------------------
 dim_country = (
     df[['area']]
@@ -127,10 +160,10 @@ dim_country['region'] = dim_country['country_name'].apply(get_region)
 dim_country['created_at'] = now
 dim_country['updated_at'] = now
 dim_country.to_csv(os.path.join(OUTPUT_DIR, "dwh_dim_country.csv"), index=False)
-print(f"✅ dim_country created with {len(dim_country)} rows")
+print(f"dim_country created with {len(dim_country)} rows")
 
 # ============================================================
-# DIM_TIME
+# DIM_TIME (existing code)
 # ============================================================
 import pandas as pd
 from datetime import datetime
@@ -142,11 +175,11 @@ dim_time = pd.DataFrame({
 })
 
 dim_time.to_csv("/opt/airflow/data/dwh/dwh_dim_time.csv", index=False)
-print(f"✅ Dimension Time saved with {len(dim_time)} records (without decade column).")
+print(f"Dimension Time saved with {len(dim_time)} records (without decade column).")
 
 
 # ------------------------------------------------------------
-# DIM EMISSION SOURCE
+# DIM EMISSION SOURCE (existing code)
 # ------------------------------------------------------------
 dim_emission_source = pd.DataFrame({
     'source_id': range(1, len(emission_cols) + 1),
@@ -160,7 +193,7 @@ dim_emission_source.to_csv(os.path.join(OUTPUT_DIR, "dwh_dim_emission_source.csv
 print(f"✅ dim_emission_source created with {len(dim_emission_source)} rows")
 
 # ------------------------------------------------------------
-# FACT EMISSION
+# FACT EMISSION (existing code)
 # ------------------------------------------------------------
 id_vars = ['area', 'year', 'total_emission', 'average_temperature_c']
 melted = df.melt(
@@ -189,7 +222,7 @@ fact_emission.to_csv(os.path.join(OUTPUT_DIR, "dwh_fact_emission.csv"), index=Fa
 print(f"✅ fact_emission created with {len(fact_emission)} rows (nulls filled with 0)")
 
 # ------------------------------------------------------------
-# FACT POPULATION
+# FACT POPULATION (existing code)
 # ------------------------------------------------------------
 fact_population = (
     df.merge(dim_country, left_on='area', right_on='country_name', how='left')
@@ -205,6 +238,6 @@ fact_population['created_at'] = now
 fact_population['updated_at'] = now
 fact_population.insert(0, 'fact_id', range(1, len(fact_population) + 1))
 fact_population.to_csv(os.path.join(OUTPUT_DIR, "dwh_fact_population.csv"), index=False)
-print(f"✅ fact_population created with {len(fact_population)} rows")
+print(f"fact_population created with {len(fact_population)} rows")
 
-print("🎉 Transformation phase completed successfully — all sources categorized and countries retained globally.")
+print("Transformation phase completed successfully — all sources categorized and countries retained globally.")
